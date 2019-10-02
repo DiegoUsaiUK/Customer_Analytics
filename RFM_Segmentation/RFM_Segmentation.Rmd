@@ -1,0 +1,864 @@
+---
+title: "A Practical Approach to Profile your Customer Base Using a Feature-rich Dataset"
+subtitle: "Steps and considerations to run a successful segmentation with K-means, Principal Components Analysis and Bootstrap Evaluation"
+author: "Diego Usai"
+date: "23 September 2019"
+output:
+  html_document:
+    theme: spacelab
+    # df_print: paged
+    highlight: pygments
+    number_sections: false
+    toc: true
+    toc_float: true
+    toc_depth : 4
+    font-family: Roboto
+    code_folding: hide
+    keep_md: false
+    dpi: 300
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval    = TRUE,      # TRUE to evaluate every single chunck
+  warning = FALSE,     # FALSE to suppress warnings from being shown
+  message = FALSE,     # FALSE to avoid package loading messages
+  cache   = FALSE,     # TRUE to save every single chunck to a folder
+  echo    = TRUE,      # TRUE for display code in output document
+  out.width = "90%",
+  out.height = "70%",
+  fig.align = "center"
+)
+```
+
+```{r switch off locale, include=FALSE}
+# turn off locale-specific sorting for messages in English
+Sys.setlocale("LC_TIME", "C")
+```
+
+```{r Load libraries, message = FALSE}
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(skimr)
+library(broom)
+library(fpc)
+library(scales)
+library(ggrepel)
+library(plotly)
+```
+
+
+## Overview
+
+Earlier this year I've used the popular [K-Means clustering](https://en.wikipedia.org/wiki/K-means_clustering) algorithm  to segment customers based on their response to a series of __marketing campaigns__. [For that post](https://rpubs.com/DiegoUsai/500245) I've deliberately used a basic dataset to show that it is not only a relatively easy analysis to carry out but can also help unearthing interesting patterns of behaviour in your customer base even when using few customer attributes.
+
+Clustering is one of my favourite analytic methods: it resonates well with clients as I've found from my consulting experience, and is a relatively straightforward concept to explain non technical audiences.  
+
+In this post I revisit customer segmentation using a __complex and feature-rich dataset__ to show the practical steps you need to take and typical decisions you may face when running this type of analysis in a more realistic context. 
+
+### Why segment you customer base?
+
+In general, grouping customers according to shared attributes and purchasing habits allows to better _understand their relationship_ with your products and services and _quantify the monetary value_ they represent to your business.
+
+Once you know who your customers are and what their value is to your business, you can:
+
+- __Personalise your products and services__ to better suit your customers’ needs
+
+- Create __Communication Strategies__ tailored to each segment
+
+- Focus __Customer Acquisition__ to more profitable customers with messages and offers more likely to resonate with them
+
+- Apply __Price Optimisation__ to match customer individual price sensitivity  
+
+- Increase __Customer Retention__ by offering discounts to customers that haven’t purchased in a long time
+
+- Enhance __Customer Engagement__ by informing them about new products that are more relevant to them
+
+- Improve your chance to __Cross-sell__ and __Up-sell__ other products and services by reaching out for the right segment when they're more likely to respond
+
+- __Test__ which type of incentive a certain segment is more likely to respond to (e.g. pricing discounts, loyalty programmes, product recommendation, etc.)
+
+
+### What kind of data should I use? 
+
+There are a variety of customer characteristics that can be used to profile your customers, the most common being:  
+
+- __Purchase behaviour:__ historic transactions offer a wealth of information on your customers such as invoice date and time, order value, products purchased, acquisition channel (website, mobile app, email, etc). _This is the type of data I'm using for this post_ and tends to be the most common kind of data available.
+
+- __Geo-demographic data:__ this is very popular in industries such as insurance, where a customer has to share certain demographic details (e.g. age, gender, marital status, occupation, household size and income, address) in order to get a quote.
+
+- __Psychographic data:__ these usually are survey-based features such as social class, lifestyle, values, personality traits, groups affiliation, etc. They can be costly to gather and from experience  difficult to make good use of as they only cover those customers who responded to the survey. 
+
+
+###  What approach should I consider?
+
+This hinges on the nature of the question/s you want to answer and the type of industry your business operates in. For this post I assume that I'm working with a client that wants to get a better understanding of their customer base, with particular emphasis to the __monetary value__ each customer contributes to the business' bottom line.
+
+One approach that lends itself well to this kind of analysis is the popular [RFM segmentation](https://en.wikipedia.org/wiki/RFM_%28customer_value%29), which takes into consideration 3 main attributes:
+
+- `Recency` – _How recently did the customer purchase?_
+- `Frequency` – _How often do they purchase?_
+- `Monetary Value` – _How much do they spend?_
+
+This is a popular approach for good reasons: it's __easy to implement__ (you just need a transactional database with client's orders over time), and explicitly creates sub-groups based on __how much each customer is contributing__. 
+
+
+## The data
+
+The dataset I'm using here accompanies a [Redbooks publication](https://www.redbooks.ibm.com/abstracts/sg248133.html?Open) and is available as a free download in the [Additional Material](ftp://www.redbooks.ibm.com/redbooks/SG248133) section. The data covers _3 & 1/2 years_ worth of sales `orders` for the __Sample Outdoors Company__, a fictitious B2B outdoor equipment retailer enterprise and comes with details about the `products` they sell as well as their customers (which in their case are `retailers` ).
+
+Here I'm simply loading up the compiled dataset but if you want to follow along I've also created an RMarkdown document called [Loading, Merging and Joining Datasets](https://rpubs.com/DiegoUsai/530694) where I show how I've assembled the various data feeds and sorted out the likes of variable naming, new features creation and some general housekeeping tasks. 
+
+```{r Importing Preclensed Data File}
+orders_tbl <- 
+   read_rds("../00_data/orders_tbl.rds")
+```
+
+You can find the full code on [my Github repository](https://github.com/DiegoUsaiUK/Loading_Merging_and_Joining_Datasets).
+
+## Data Exploration
+
+This is a crucial phase of any data science project because it helps with making sense of your dataset. Here is where you get to _understand the relations_ among the variables, _discover interesting patterns_ within the data, and _detect anomalous events and outliers_. This is also the stage where you _formulate hypothesis_ on what customer groups the segmentation may find.
+
+First, I need to create an analysis dataset, which I'm calling `customers_tbl` (`tbl` stands for [__tibble__](https://cran.r-project.org/web/packages/tibble/vignettes/tibble.html), R modern take on data frames). I'm including `average order value` and `number of orders` as I want to take a look at a couple more variables beyond the RFM standard Recency, Frequency and Monetary Value. 
+
+```{r create analysis dataset}
+customers_tbl <- 
+   orders_tbl %>% 
+  
+   # assume a cut-off date of 30-June-2007 and create a recency variable 
+   mutate(days_since = as.double(
+     ceiling(
+       difftime(
+          time1 = "2007-06-30",
+          time2 = orders_tbl$order_date, 
+          units = "days")))
+          ) %>%
+   
+   # select last 2 full years 
+   filter(order_date <= "2007-06-30") %>% 
+   
+   # create analysis variables
+   group_by(retailer_code) %>%
+   summarise(
+      recency = min(days_since),
+      frequency = n(),
+      # average sales
+      avg_amount = mean(revenue),
+      # total sales
+      tot_amount = sum(revenue),
+      # number of orders
+      order_count = length(unique(order_date))
+      ) %>%
+   # average order value
+   mutate(avg_order_val = tot_amount / order_count) %>% 
+   ungroup()
+```
+
+As a rule of thumb, you want to ideally include a good __2 to 3 year of transaction history__ in your segmentation (here I'm using the the full _3 & 1/2_ years). This ensures that you have enough variation in your data to capture a wide variety of customer types and behaviours, different purchase patterns, and outliers.
+
+__Outliers__ may represent rare occurrences of customers that have made, for instance, only a few sporadic purchases over time or placed only one or two very large orders and disappeared. Some data science practitioners prefer to exclude outliers from segmentation analysis as _k-means clustering_ tends to put them in little groups of their own, which may have little descriptive power. Instead, I think it's important to include outliers so that they can be studied to understand why they occurred and, should those customers reappear, target them with the right incentive (like  _recommend a product_ they're likely to purchase, a _multi-buy discount_, or on-boarding them on a _loyalty scheme_ for instance).
+
+### Single Variable Exploration
+
+#### Recency
+
+`recency` distribution is severely right skewed, with a mean of around 29 and 50% of observations between the values of 9 and 15. This means that the bulk of customers have made their most recent purchase within the past 15 days. 
+
+```{r}
+summary(customers_tbl$recency)
+```
+Normally, I would expect orders to be a bit more evenly spread out over time with not so many gaps along the first part of the tail. The large amount of sales concentrated within the last 2 weeks of activity tells me that orders were "manually" added to the dataset to simulate a surge in orders.
+
+__NOTE__ that there are a few extreme outliers beyond 400, which are not shown in the chart.
+
+```{r}
+(customers_tbl %>% 
+   ggplot(aes(x = recency)) +
+   geom_histogram(bins = 100, fill = "#E69F00", colour = "red") +
+   labs(x = "", 
+        y = "", 
+        title = "Days since last order") + 
+   coord_cartesian(xlim = c(0, 400)) +
+   scale_x_continuous(breaks = seq(0, 400, 100)) +
+   theme_light()
+ ) %>%
+  ggplotly()
+```
+
+#### Frequency
+
+The distribution is right skewed and most customers have made between 250 and just under 900 purchases, with the mean pulled above the median by the right skew.
+```{r}
+summary(customers_tbl$frequency)
+```
+A small number of outliers can be found beyond 4,000 purchases per customer, with an extreme point beyond the 8,500 mark.
+```{r}
+(customers_tbl %>% 
+   ggplot(aes(x = frequency)) +
+   geom_histogram(bins = 50, fill = "steelblue", colour = "blue") +
+   labs(x = "", 
+        y = "",
+        title = "Purchase frequency") + 
+   coord_cartesian(xlim = c(0, 9000)) +
+   scale_x_continuous(breaks = seq(0, 9000, 1000)) +
+   theme_light()
+ ) %>%
+  ggplotly()
+```
+
+
+#### Total and Average Sales
+
+`total sales` and `average sales` are both right skewed with Total sales showing some extreme outliers at the $50m and $75m marks, whether average sales has a more continuous tail. They would both work well to capture the _monetary value_ dimension for the segmentation but I personally prefer `average sales` as it softens the impact of the extreme values.
+
+```{r}
+a <- 
+customers_tbl %>%
+   ggplot(aes(x = tot_amount)) +
+   geom_histogram(bins = 50, fill = "light green", colour = "forest green") +
+   labs(x = "", 
+         y = "", 
+         title = "") +
+   scale_x_continuous(
+      labels = scales::dollar_format(scale = 1e-6,suffix = "m"),
+                         breaks = seq(0, 7e+7, 1e+7)) +
+   scale_y_continuous(limits = c(0,80)) +
+   theme_light() +
+   annotate("text", x = 60e+6, y = 70, label = "Total sales per customer")
+
+b <- 
+customers_tbl %>%
+   ggplot(aes(x = avg_amount)) +
+   geom_histogram(bins = 50, fill = "forest green", colour = "dark green") +
+   labs(x = "Average sales per customer", 
+        y = "", 
+        title = "") +
+   scale_x_continuous(
+     labels = scales::dollar_format(scale = 1e-3, suffix = "k"),
+                      breaks = seq(0, 70000, 10000)) +
+   scale_y_continuous(limits = c(0, 80)) +
+   theme_light() +
+   annotate("text", x = 50e+3, y = 70, label = "Average sales per customer")
+ 
+subplot(a,b, nrows = 2, margin = 0.04)
+```
+
+
+#### Number of Orders
+
+The distribution also has a right skew and the majority of retailers made between 37 and just over 100 orders in the 3 years to 30-June-2007. There are a small number of outliers with an extreme case of one retailer placing __349 orders in 3 years__. 
+
+```{r}
+summary(customers_tbl$order_count)
+```
+
+Number of `orders per customer` show a hint of bi-modality on the right hand side, with a peak at around 30 and another one at about 90. This suggests the potential for distinct subgroups in the data.
+```{r}
+(customers_tbl %>%
+      ggplot(aes(x = order_count)) +
+      geom_histogram(bins = 60, fill = "firebrick3", colour = "sandybrown") +
+      labs(x = "", 
+           y = "", 
+           title = "Number of Orders per Customer") +
+      scale_x_continuous(breaks = seq(0, 300, 50)) +
+      theme_light()
+ ) %>% 
+  ggplotly()
+```
+
+
+#### Average Order Value
+
+The `average order value` is of just over $105k with 50% of orders having a value between $65k and $130k and a few outliers beyond the $300k mark. 
+
+```{r}
+summary(customers_tbl$avg_order_val)
+```
+
+We also find a small amount of outliers beyond the value of $300k per order.
+```{r}
+(customers_tbl %>%
+      ggplot(aes(x = avg_order_val)) +
+      geom_histogram(
+         bins = 50,
+         fill = "purple", colour = "black") +
+      labs(x = "", 
+           y = "",
+           title = "Average Order Value") +
+      scale_x_continuous(
+         labels = scales::dollar_format(scale = 1e-3, suffix = "k"),
+                          breaks = seq(0, 5e+5, 1e+5)) +
+      theme_light()
+) %>% 
+   ggplotly()
+```
+
+### Multiple Variables Exploration
+
+Plotting 2 or 3 variable together is a great way to understand the relationship that exists amongst them and get a sense of how many clusters you may find. It's always good to plot as many combinations as possible but here I'm only showing the most salient ones.
+
+Let's plot the RFM trio (`recency`, `frequency` and `average sales` per customer) and use frequency to colour-code the points.
+
+```{r}
+(customers_tbl %>% 
+   ggplot(aes(x = (recency), y = (avg_amount))) + 
+   geom_point(aes(colour = frequency)) + 
+   scale_colour_gradient(name = "Frequency", 
+                         high = "#132B43", 
+                         low = "#56B1F7") +
+   scale_y_continuous(labels = scales::dollar_format(scale = 1e-3,
+                                                     suffix = "k")) +
+   labs(x = "Recency", 
+        y = "Average Sales",
+        title = "") +
+   theme_light()
+) %>%
+  ggplotly()
+```
+
+The chart is not too easy to read with most data points being clumped on the left-hand side, which is no surprise given the severe right skew found for `recency` in the previous section. You can also notice that the large majority of points are of a paler hue of blue, denoting less frequent purchases. 
+
+To make the chart more readable, it is often convenient to log-transform variables with a positive skew to spread the observations across the plot area.
+```{r}
+(customers_tbl %>% 
+   ggplot(aes(x = log(recency), y = log(avg_amount))) + 
+   geom_point(aes(colour = log(frequency))) + 
+   scale_colour_gradient(name = "Log Freq.", 
+                         high = "#132B43", 
+                         low = "#56B1F7") +
+   labs(x = "Log Recency", 
+        y = "Log Average Sales",
+        title = "") +
+   theme_light()
+) %>% 
+  ggplotly()
+```
+
+Even the log scale does not help much with chart readability. Given the extreme right skew found in `recency`, I expect that the clustering algorithm may find it difficult to identify well defined groups.
+
+
+## The Analysis  
+
+To profile the customers I am using the __K-means clustering__ technique: it handles large dataset very well and iterates rapidly to stable solutions.
+
+First, I need to scale the variables so that the relative difference in their magnitudes does not affect the calculations.
+```{r}
+clust_data <- 
+   customers_tbl %>% 
+   select(-retailer_code) %>% 
+   scale() %>% 
+   as_tibble()
+```
+
+Then, I build a function to calculate `kmeans` for any number of centres and create a nested tibble to house all the model output.
+```{r}
+kmeans_map <- function(centers = centers) {
+   set.seed(1975)                   # for reproducibility
+   clust_data[,1:3] %>%  
+      kmeans(centers = centers, 
+             nstart = 100, 
+             iter.max = 50)
+}
+
+# Create a nested tibble
+kmeans_map_tbl <- 
+   tibble(centers = 1:10) %>%       # create column with centres 
+   mutate(k_means = centers %>% 
+             map(kmeans_map)) %>%   # iterate `kmeans_map` row-wise to gather 
+                                    # kmeans models for each centre in column 2
+   
+   mutate(glance = k_means %>%      # apply `glance()` row-wise to gather each
+             map(glance))           # model’s summary metrics in column 3
+                                    
+```
+
+```{r, collapse=T}
+kmeans_map_tbl %>% glimpse()
+```
+
+Last, I can build a `scree plot` and look for the “elbow”, the point where the gain of adding an extra clusters in explained `tot.withinss` starts to level off. It seems that the optimal number of clusters is __4__.
+```{r}
+kmeans_map_tbl %>% 
+   unnest(glance) %>%                          # unnest the glance column
+   select(centers, tot.withinss) %>%         # select centers and tot.withinss
+   
+   ggplot(aes(x = centers, y = tot.withinss)) + 
+   geom_line(colour = 'grey30', size = .8) +
+   geom_point(colour = 'green4', size = 3) +
+   geom_label_repel(aes(label = centers),
+                    colour = 'grey30') +
+   labs(title = 'Scree Plot') +
+   theme_light()
+```
+
+### Evaluating the Clusters
+
+Although the algorithm has captured some distinct groups in the data, there also are some significant overlaps between clusters 1 and 2, and clusters 3 and 4.
+
+```{r}
+kmeans_4_tbl <- 
+   kmeans_map_tbl %>% 
+   pull(k_means) %>%
+   pluck(4) %>%               # pluck element 4 
+   augment(customers_tbl)     # attach .cluster to the tibble
+
+(kmeans_4_tbl %>% 
+   ggplot(aes(x = log(recency), y = log(avg_amount))) + 
+   geom_point(aes(colour = .cluster)) + 
+   labs(x = "Log Recency", 
+        y = "Log Average Sales",
+        title = "") +
+   theme_light()
+) %>% 
+   ggplotly()
+```
+
+In addition, the clusters are not particularly well balanced, with the 4th group containing nearly %80 of all `retailers`, which is of limited use for profiling your customers. Groups 1, 3 and 4 have a very similar `recency` values, with the 2nd one capturing some (but not all) of the "less recent" buyers.
+```{r}
+options(digits = 2)
+
+kmeans_4_tbl %>% 
+   group_by(.cluster) %>% 
+   summarise(
+      Retailers = n(),
+      Recency = median(recency),
+      Frequency = median(frequency),
+      Avg.Sales = median(avg_amount)
+      ) %>% 
+   ungroup() %>% 
+   mutate(`Retailers(%)` = 100*Retailers / sum(Retailers)) %>% 
+   arrange((.cluster)) %>% 
+   select(c(1,2,6,3:5)) %>% 
+   kable() 
+```
+
+
+## Alternative Analysis
+
+As anticipated, the algorithm is struggling to find well defined groups based on `recency`. I'm not particularly satisfied with the RFM-based profiling and believe it wise to consider a different combination of features. 
+
+I've explored several alternatives (not included here for conciseness) and found that `average order value`, `orders per customer`and `average sales per customer` are promising candidates. Plotting them unveils a good enough feature separation, which is encouraging.
+
+```{r}
+(customers_tbl %>% 
+   ggplot(aes(x = log(order_count), y = log(avg_order_val))) + 
+   geom_point(aes(colour =  log(avg_amount))) + 
+   scale_colour_gradient(name = "Avg. Sales", 
+                         high = "#132B43", 
+                         low = "#56B1F7") +
+   labs(x = "Orders per Cust.", 
+        y = "Avg Order Value",
+        title = "") +
+   theme_light()
+) %>% 
+  ggplotly()
+``` 
+
+Let's run the customer segmentation one more time with the new variables.
+```{r}
+# function for a set number of centers
+kmeans_map_alt <- function(centers = centers) {
+   set.seed(1975)                       # for reproducibility
+   clust_data[,4:6] %>%                 # select relevant features
+      kmeans(centers = centers, 
+             nstart = 100, 
+             iter.max = 50)
+}
+
+# create nested tibble
+kmeans_map_tbl_alt <- 
+   tibble(centers = 1:10) %>%           # create column with centres 
+   mutate(k_means = centers %>% 
+             map(kmeans_map_alt)) %>%   # iterate `kmeans_map_alt` row-wise to gather 
+                                        # kmeans models for each centre in column 2
+   
+   mutate(glance = k_means %>%          # apply `glance()` row-wise to gather each
+             map(glance))               # model’s summary metrics in column 3
+```
+
+Once again the optimal number of clusters should be __4__ but the change in slope going to 5 is less pronounced than we have seen before, which may imply that the number of meaningful groups could be higher.
+```{r}
+kmeans_map_tbl_alt %>% 
+   unnest(glance) %>%                         # unnest the glance column
+   select(centers, tot.withinss) %>%         # select centers and tot.withinss
+   
+   ggplot(aes(x = centers, y = tot.withinss)) + 
+   geom_line(colour = 'grey30', size = .8) +
+   geom_point(colour = 'green4', size = 3) +
+   geom_label_repel(aes(label = centers),
+                    colour = 'grey30') +
+   labs(title = 'Scree Plot') +
+   theme_light()
+```
+
+### Evaluating the Clusters
+
+Although still present, cluster overlapping is less pronounced and the groups separation is much sharper.
+```{r}
+kmeans_4_tbl_alt <- 
+   kmeans_map_tbl_alt %>% 
+   pull(k_means) %>%
+   pluck(4) %>%               # pluck element 4 
+   augment(customers_tbl)     # attach .cluster to the tibble
+
+
+(kmeans_4_tbl_alt %>% 
+   ggplot(aes(x = log(order_count), y = log(avg_order_val))) + 
+   geom_point(aes(colour = .cluster)) +  
+   labs(x = "Number of Orders", 
+        y = "Average Order Value",
+        title = "Segmentation on 4 clusters") +
+   theme_light()
+) %>% 
+   ggplotly()
+```
+
+Clusters are much better defined with no one group dominating like before. Although not used in the model, I've added `recency` to show that even the former problem child is now more evenly balanced across groups. 
+
+```{r}
+options(digits = 2)
+
+kmeans_4_tbl_alt %>%
+group_by(.cluster) %>% 
+   summarise(
+      Retailer = n(),
+      Avg.Sales = median(avg_amount),
+      Orders = median(order_count),
+      Avg.Order.Val = median(avg_order_val),
+      Recency = median(recency),
+      Frequency = median(frequency)
+      ) %>% 
+   ungroup() %>% 
+   mutate(`Retailers(%)` = 100 * Retailer / sum(Retailer)) %>% 
+   arrange((.cluster)) %>% 
+   select(c(1,2,8, 3:7)) %>% 
+   kable()
+```
+
+
+When I increase the number of clusters, the group separation remains quite neat and some noticeable overlapping reappears only with the 7-cluster configuration.
+```{r}
+c <- 
+   kmeans_map_tbl_alt %>% 
+   pull(k_means) %>%
+   pluck(4) %>%                        
+   augment(customers_tbl) %>% 
+   ggplot(aes(x = log(order_count), y = log(avg_order_val))) + 
+   geom_point(aes(colour = .cluster)) +  
+   # scale_y_continuous(labels = scales::dollar_format(scale = 1e-3,
+   #                                                suffix = "k")) +
+   theme(legend.position = "none") +
+   labs(x = "Number of Orders", 
+        y = "Avg. Order Value",
+        title = "") +
+   theme_light()
+
+d <- 
+   kmeans_map_tbl_alt %>% 
+   pull(k_means) %>%
+   pluck(5) %>%                        
+   augment(customers_tbl) %>% 
+   ggplot(aes(x = log(order_count), y = log(avg_order_val))) + 
+   geom_point(aes(colour = .cluster)) +  
+   # scale_y_continuous(labels = scales::dollar_format(scale = 1e-3,
+   #                                                suffix = "k")) +
+   theme(legend.position = "none") +
+   labs(x = "Number of Orders", 
+        y = "Avg. Order Value",
+        title = "") +
+   theme_light()
+
+e <- 
+   kmeans_map_tbl_alt %>% 
+   pull(k_means) %>%
+   pluck(6) %>%                        
+   augment(customers_tbl) %>% 
+   ggplot(aes(x = log(order_count), y = log(avg_order_val))) + 
+   geom_point(aes(colour = .cluster)) +  
+   # scale_y_continuous(labels = scales::dollar_format(scale = 1e-3,
+   #                                                suffix = "k")) +
+   theme(legend.position = "none") +
+   labs(x = "Number of Orders", 
+        y = "Avg. Order Value",
+        title = "") +
+   theme_light()
+
+f <- 
+   kmeans_map_tbl_alt %>% 
+   pull(k_means) %>%
+   pluck(7) %>%                        
+   augment(customers_tbl) %>% 
+   ggplot(aes(x = log(order_count), y = log(avg_order_val))) + 
+   geom_point(aes(colour = .cluster)) +  
+   # scale_y_continuous(labels = scales::dollar_format(scale = 1e-3,
+   #                                                suffix = "k")) +
+   theme(legend.position = "none") +
+   labs(x = "Number of Orders", 
+        y = "Avg. Order Value",
+        title = "") +
+   theme_light()
+
+subplot(c, d, e, f, nrows = 2, 
+        shareX = T,
+        shareY = T, 
+        margin = 0.04)
+```
+
+## Principal Components Analysis
+
+Plotting combinations of variables is a good exploratory exercise but is arbitrary in nature and may lead to mistakes and omissions, especially when you have more than just a handful of variables to consider. 
+
+Thankfully we can use dimensionality reduction algorithms like [Principal Components Analysis](https://en.wikipedia.org/wiki/Principal_component_analysis), or PCA for short, to visualise customer groups.
+
+One key advantage of PCA is that each PCs is orthogonal to the direction that maximises the linear variance in the data. This means that the first few PCs can capture the majority of variance in the data and is a more faithful 2 dimensional visualisation of the clusters than the variable comparisons of the plots above.
+
+To perform a _principal components analysis_ I use the `prcomp` function from base R. __VERY IMPORTANT:__  do _NOT_ forget to scale and centre your data! For some reason, this is not the default!
+```{r, collapse=T}
+pca_obj <- 
+   customers_tbl[,5:7] %>% 
+   prcomp(center = TRUE, 
+          scale. = TRUE)
+
+
+summary(pca_obj)
+```
+
+It's a good idea to take a look at the _variance explained_ by each PC. The information I need is the __Proportion of Variance__ and is contained in the `importance` element of the `pca_obj`.
+```{r}
+(data.frame(summary(pca_obj)$importance) %>%    # extract importance as a dataframe
+   rownames_to_column() %>%                     # get metrics names in a column
+   pivot_longer(c(2:4),                         
+                names_to = "PC", 
+                values_to = "value") %>%        # using tidyr::pivot_longer, the new gather 
+
+   filter(rowname == 'Proportion of Variance') %>%
+   ggplot(aes(x = PC, y = value)) +
+   geom_col(aes(fill =  value)) +
+   scale_fill_gradient(high = "grey5", low = "grey50") +
+   scale_y_continuous(labels = scales::percent) +
+   labs(x = "Principal Component", 
+        y = "Percentage of Variance Explained",
+        title = "Variance Explained by Principal Component")
+   ) %>% 
+   ggplotly()
+```
+
+The first 2 components are explaining 97% of the variation in the data, which means that using the first 2 PCs will give us a very good understanding of the data and every subsequent PC will add very little information. This is obviously more relevant when you have a larger number of variables in your dataset.
+
+
+### PCA visualisation - 4 clusters
+
+First, I extract the PCA from `pca_obj` and join the PCs co-ordinate contained in the element `x` with the `retailer` information from the original `customer_tbl` set.
+```{r}
+pca_tbl <- 
+   pca_obj$x %>%                 # extract "x", which contains the PCs co-ordinates
+   as_tibble() %>%               # change to a tibble
+   bind_cols(customers_tbl %>%   # append retailer_code, my primary key
+                select(retailer_code))
+```
+
+Then, I `pluck` the 4th element from `kmeans_map_tbl_alt`, attach the cluster info to it, and `left_join` by retailer_code so that I have all information I need in one tibble, ready for plotting.
+```{r}
+km_pca_4_tbl <- 
+   kmeans_map_tbl_alt %>% 
+   pull(k_means) %>%
+   pluck(4) %>%                  # pluck element 4 
+   augment(customers_tbl) %>%    # attach .cluster to the tibble 
+   left_join(pca_tbl,            # left_join by my primary key, retailer_code 
+             by = 'retailer_code')
+
+(km_pca_4_tbl %>% 
+   mutate(label_text = str_glue('Retailer: {retailer_code}
+                                  Cluster: {.cluster}
+                                  Recency: {recency}
+                                  Frequency: {frequency}
+                                  Avg Value: {avg_amount}')) %>%
+   ggplot(aes(x = PC1, y = PC2, colour = .cluster)) +
+   geom_point(aes(text = label_text, shape = .cluster)) +
+   labs(title    = 'K-Means 4 Clusters Against First Two Principal Components',
+        caption  = "") +
+   theme(legend.position = 'none') +
+   theme_light()
+) %>% 
+   ggplotly(tooltip = "label_text")
+```
+
+The chart confirms that the segments are well separated in the 4-cluster configuration. Segments 1 and 3 show significant variability in different directions and there is a degree of overlapping between segments 2 and 4.
+
+```{r}
+options(digits = 2)
+
+kmeans_map_tbl_alt %>% 
+   pull(k_means) %>%
+   pluck(4) %>%                        
+   augment(customers_tbl) %>%
+   group_by(.cluster) %>% 
+   summarise(
+      Retailers = n(),
+      Avg.Sales = median(avg_amount),
+      Orders = median(order_count),
+      Avg.Order.Val = median(avg_order_val),
+      `Tot.Sales(m)` = sum(tot_amount/1e+6)
+      ) %>% 
+   ungroup() %>% 
+   mutate(`Tot.Sales(%)` = 100 * `Tot.Sales(m)` / sum(`Tot.Sales(m)`),
+          `Retailers(%)` = 100*Retailers / sum(Retailers))  %>% 
+   select(c(1, 2, 8, 3:7)) %>%
+   kable()
+```
+
+__Group 1__ includes customers who placed a small number of very high-value orders. Although they represent only 6% of overall total sales, encouraging them to place even a slightly higher number of orders could result in a big increase in your bottom line. 
+
+__Group 2__ is the "low order value" / "low number of orders" segment. However, as it accounts for almost 40% of the customer base, I'd incentivise them to increase either their order value or number of orders.  
+
+__Group 3 __ is a relatively small segment (11% of total `retailers`) but have placed a _very high number of mid-to-high value orders_. These are some of your __most valuable customers__ and account for nearly 40% of total sales. I would want to keep them very happy and engaged.
+
+__Group 4 __ is where __good opportunities__ may lay! This is the largest group in terms of both number of retailers (45%) and contribution to total sales (44%). I would try to motivate them to move to __Group 1__  or __Group 3__.
+
+
+### PCA visualisation - 6 clusters
+
+__IMPORTANT NOTE__: the cluster numbering is randomly generated so group names do not match with those in the previous section.
+
+Let's now see if adding extra clusters reveals some hidden dynamics and help us fine tune this profiling exercise. Here I'm only showing the 6-cluster configuration, which is the most promising. 
+```{r}
+options(digits = 2)
+
+kmeans_6_tbl <- 
+   kmeans_map_tbl_alt %>% 
+   pull(k_means) %>%
+   pluck(6) %>%                  # pluck element 6 
+   augment(customers_tbl) %>%    # attach .cluster to the tibble 
+   left_join(pca_tbl,            # left_join by retailer_code
+             by = 'retailer_code')
+
+
+(kmeans_6_tbl %>% 
+   mutate(label_text = str_glue('Retailer: {retailer_code}
+                                  Cluster: {.cluster}
+                                  Recency: {recency}
+                                  Frequency: {frequency}
+                                  Avg Value: {avg_amount}')) %>%
+   ggplot(aes(x = PC1, y = PC2, colour = .cluster)) +
+   geom_point(aes(text = label_text, shape = .cluster)) +
+   labs(title    = 'K-Means 6 Clusters Against First Two Principal Components',
+        caption  = "") +
+   theme(legend.position = 'none') +
+   theme_light()
+) %>% 
+   ggplotly(tooltip = "label_text")
+```
+
+The 6-segment set up broadly confirms the groups structure and separation found in the 4-split solution, showing good clusters stability. Former segments 1 and 3 further split out to create 2 _"mid-of-the-range"_ groups, each 'borrowing' from former segments 2 and 4. 
+
+```{r}
+options(digits = 2)
+
+kmeans_map_tbl_alt %>% 
+   pull(k_means) %>%
+   pluck(6) %>%                        
+   augment(customers_tbl) %>%
+   group_by(.cluster) %>% 
+   summarise(
+      Retailers = n(),
+      Avg.Sales = median(avg_amount),
+      Orders = median(order_count),
+      Avg.Order.Val = median(avg_order_val),
+      `Tot.Sales(m)` = sum(tot_amount/1e+6)
+      ) %>% 
+   ungroup() %>% 
+   mutate(`Tot.Sales(%)` = 100 * `Tot.Sales(m)` / sum(`Tot.Sales(m)`),
+          `Retailers(%)` = 100*Retailers / sum(Retailers))  %>% 
+   select(c(1, 2, 8, 3:7)) %>%
+   kable()
+```
+
+The new _"mid-of-the-range"_ groups have specific characteristics:
+
+- Customers in __New Group 1__  are placing a _high number of orders_ of _mid-to-high value_ and contribute some 18% to _Total Sales_. 
+
+   - __STRATEGY TO TEST__: as they're already placing frequent orders, we may offer them incentives to __increase their order value__.
+
+
+- On the other hand, __New Group 3__ customers are purchasing _less frequently_ and have a similar _mid-to-high order value_ and account for some 16% to _total customers_. 
+
+   - __STRATEGY TO TEST__: in this case the incentive could be focused on __boosting the number of orders__. 
+
+Better defined clusters represent __greater potential opportunities__: it makes it easier to testing different strategies, learn what really resonates with each group and connect with them using the right incentive. 
+
+## Clusterboot Evaluation
+
+One last step worth taking is verifying how 'genuine' your clusters are by validating whether they capture non-random structure in the data. This is particularly important with __k-means clustering__ because the analyst has to specify the number of clusters in advance.
+
+The __clusterboot algorithm__ uses bootstrap resampling to evaluate how stable a given cluster is to perturbations in the data. The cluster’s stability is assessed by measuring the similarity between sets of a given number of number of resampling runs.
+
+```{r, message=FALSE}
+kmeans_boot100 <-
+   clusterboot(
+      clust_data[,4:6],
+      B = 50,                    # number of resampling runs
+      bootmethod = "boot",       # resampling method: nonparametric bootstrap
+      clustermethod = kmeansCBI, # clustering method: k-means 
+      k = 7,                     # number of clusters 
+      seed = 1975)               # for reproducibility
+
+
+bootMean_df <- 
+   data.frame(cluster = 1:7, 
+              bootMeans = kmeans_boot100$bootmean)
+```
+
+
+To interpret the results, I visualise the tests output with a simple chart.
+
+Remember that values:
+
+- __above 0.8__ (segment 2, 3 and 5) indicates highly stable clusters
+- __between 0.6 and 0.75__ (segments 1, 4 and 6) signal a acceptable degree of stability
+- __below 0.6__ (segment 7) should be considered unstable
+
+Hence, the 6-cluster configuration is overall considerably stable. 
+
+```{r}
+(bootMean_df %>%
+    ggplot(aes(x = cluster, y = bootMeans)) +
+    geom_point(colour = 'green4', size = 4) +
+    geom_hline(yintercept = c(0.6, 0.8)) +
+    theme_light() +
+    labs(x = "Stability",
+         title = "Clusterboot Stability Evaluation") +
+    theme(legend.position = "none")) %>% ggplotly()
+```
+
+
+## Closing thoughts
+
+In this post I've used a feature-rich dataset to run through the practical steps you need to take and considerations you may face when running a customer profiling analysis. I've used the __K-means clustering__ technique on a range of different customer attributes to look for potential sub-groups in the customer base, visually examined the clusters with __Principal Components Analysis__, and validated the cluster's stability with __clusterboot__ from the `fpc` package. 
+
+This analysis should provide a solid base for discussion with relevant business stakeholders.  Normally I would present my client with a variety of customer profiles based on different combinations of customer features and formulate my own data-driven recommendations. However, it is ultimately down to them to decide how many groups they want settle for and what characteristics each segment should have.
+
+## Conclusions
+
+Statistical clustering is very easy to implement and can identify natural occurring patterns of behaviour in your customer base. However, it has some limitations that should always be kept in mind in a commercial setting. First and foremost, it is a __snapshot in time__ and just like a picture it only represents the moment it was taken. 
+
+For that reason it should be __periodically re-evaluated__ because:
+
+- it may capture __seasonal effects__ that do not necessarily apply at different periods in time 
+
+- __new customers__ can enter your customer base, changing the make up of each group
+ 
+- customers __purchase patterns evolve__ over time and so should your customer profiling
+
+Nonetheless, statistical segmentation remains a powerful and useful exploratory exercise to finding groups within your consumer data. It also resonates well with clients as I've found from my consulting experience, and is a relatively straightforward concept to explain non technical audiences. 
+
+### Code Repository
+The full R code can be found on [my GitHub profile](https://github.com/DiegoUsaiUK/Customer_Analytics/tree/master/RFM_Segmentation)
+
+
+### References
+
+* For a broader discussion on [the benefits of customer segmentation](https://www.insanegrowth.com/customer-segmentation/)
+* For a visual introduction to [Principal Components Analysis](http://setosa.io/ev/principal-component-analysis/)
+* For an application of [clusterboot algorithm](https://www.r-bloggers.com/bootstrap-evaluation-of-clusters/)
+* For a critique of some of [k-means drawback](https://www.datascience.com/blog/k-means-alternatives)
