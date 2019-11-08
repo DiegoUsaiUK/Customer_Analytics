@@ -1,6 +1,6 @@
 # Steps and considerations to run a successful segmentation with K-means, Principal Components Analysis and Bootstrap Evaluation
 
-In this project I use a __complex and feature-rich dataset__  to run through the practical steps you need to take and considerations you may face when running a customer profiling analysis. I  use the __K-means clustering technique__ on a range of different customer attributes __to look for potential sub-groups__ in the customer base, __visually examine the clusters with Principal Components Analysis__, and __validate the cluster’s stability with clusterboot__ from the fpc package.
+In this project I use a __complex and feature-rich dataset__  to run through the practical steps you need to take and considerations you may face when running a customer profiling analysis. I  use the __K-means clustering technique__ on a range of different customer attributes to look for potential sub-groups in the customer base, visually examine the clusters with __Principal Components Analysis__, and validate the cluster’s stability with __clusterboot__ from the fpc package.
 
 I assume that __I’m working with a client that wants to get a better understanding of their customer base__, with particular emphasis to the __monetary value__ each customer contributes to the business’ bottom line.
 
@@ -12,7 +12,7 @@ One approach that lends itself well to this kind of analysis is the popular __RF
 
 This is a popular approach for good reasons: it’s __easy to implement__ (you just need a transactional database with client’s orders over time), and explicitly creates sub-groups based on __how much each customer is contributing__.
 
-This analysis should provide a solid base for discussion with relevant business stakeholders. Normally I would present my client with a variety of customer profiles based on different combinations of customer features and formulate my own data-driven recommendations. However, it is ultimately down to them to decide how many groups they want settle for and what characteristics each segment should have.
+This analysis should __provide a solid base for discussion with relevant business stakeholders__. Normally I would present my client with a variety of customer profiles based on different combinations of customer features and formulate my own data-driven recommendations. However, it is ultimately down to them to decide how many groups they want settle for and what characteristics each segment should have.
 
 ## The Data
 
