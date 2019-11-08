@@ -1,22 +1,18 @@
 # Steps and considerations to run a successful segmentation with K-means, Principal Components Analysis and Bootstrap Evaluation
 
-Clustering is one of my favourite analytic methods: it resonates well with clients as I’ve found from my consulting experience, and is a relatively straightforward concept to explain non technical audiences.
+In this project I use a __complex and feature-rich dataset__  to run through the practical steps you need to take and considerations you may face when running a customer profiling analysis. I  use the __K-means clustering technique__ on a range of different customer attributes __to look for potential sub-groups__ in the customer base, __visually examine the clusters with Principal Components Analysis__, and __validate the cluster’s stability with clusterboot__ from the fpc package.
 
-Earlier this year I’ve used the popular __[K-Means clustering algorithm__](https://en.wikipedia.org/wiki/K-means_clustering) to segment customers based on their response to a series of __marketing campaigns__. For that [__post__](https://diegousai.io/2019/05/a-gentle-introduction-to-customer-segmentation/) I’ve deliberately used a basic dataset to show that it is not only a relatively easy analysis to carry out but can also help unearthing interesting patterns of behaviour in your customer base even when using few customer attributes.
+I assume that __I’m working with a client that wants to get a better understanding of their customer base__, with particular emphasis to the __monetary value__ each customer contributes to the business’ bottom line.
 
-In this project I revisit customer segmentation using a __complex and feature-rich dataset__ to show the practical steps you need to take and typical decisions you may face when running this type of analysis in a more realistic context.
-
-## Business Objective
-
-Choosing the approach to use hinges on the nature of the question/s you want to answer and the type of industry your business operates in. For this post I assume that __I’m working with a client that wants to get a better understanding of their customer base__, with particular emphasis to the __monetary value__ each customer contributes to the business’ bottom line.
-
-One approach that lends itself well to this kind of analysis is the popular RFM segmentation, which takes into consideration 3 main attributes:
+One approach that lends itself well to this kind of analysis is the popular __RFM segmentation__, which takes into consideration 3 main attributes:
 
 - __Recency__ – How recently did the customer purchase?
 - __Frequency__ – How often do they purchase?
 - __Monetary Value__ – How much do they spend?
 
 This is a popular approach for good reasons: it’s __easy to implement__ (you just need a transactional database with client’s orders over time), and explicitly creates sub-groups based on __how much each customer is contributing__.
+
+This analysis should provide a solid base for discussion with relevant business stakeholders. Normally I would present my client with a variety of customer profiles based on different combinations of customer features and formulate my own data-driven recommendations. However, it is ultimately down to them to decide how many groups they want settle for and what characteristics each segment should have.
 
 ## The Data
 
