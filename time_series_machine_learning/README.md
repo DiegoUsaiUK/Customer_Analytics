@@ -1,6 +1,4 @@
-# Time Series Machine Learning Analysis and Demand Forecasting with H2O & TSstudio
-
-# _How I used machine learning to implement a time series forecast of weekly revenue_
+# Time Series Machine Learning Analysis and Demand Forecasting with H2O & TSstudio - How I used machine learning to implement a time series forecast of weekly revenue
 
 
 In this project I go through the various steps needed to build a __time series machine learning pipeline__ and generate a __weekly revenue forecast__. 
