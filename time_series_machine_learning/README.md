@@ -13,3 +13,5 @@ In this post I’m simply loading up the compiled dataset but I’ve also writte
 ## Links
 
 You can find the final article on [__my website__](https://diegousai.io/2019/12/time-series-machine-learning-analysis-and-demand-forecasting/)
+
+I've also published the article on [The Startup](https://medium.com/swlh/time-series-machine-learning-analysis-and-demand-forecasting-with-h2o-tsstudio-b21cd58749b1)
